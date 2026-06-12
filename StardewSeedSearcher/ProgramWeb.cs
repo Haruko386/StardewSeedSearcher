@@ -235,7 +235,7 @@ namespace StardewSeedSearcher
                         .ToList();
 
                     // 使用 Partitioner 减少线程调度开销
-                    var rangePartitioner = Partitioner.Create(request.StartSeed, request.EndSeed + 1);
+                    var rangePartitioner = Partitioner.Create(request.StartSeed, request.EndSeed + 1); // 左闭右开，item2必须大于item1
 
                     // 预留一个核心给 Channel 消费者以防止进度不能及时更新，单核时则不能避免
                     int degreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1);
@@ -249,10 +249,13 @@ namespace StardewSeedSearcher
                     {
                         Parallel.ForEach(rangePartitioner, parallelOptions, (range, state) =>
                         {
-                            for (int seed = (int)range.Item1; seed < range.Item2; seed++)
+                            for (long long_seed = range.Item1; long_seed < range.Item2; long_seed++) // 此处必须使用long防止溢出
                             {
                                 // 提前终止
                                 if (linkedCts.Token.IsCancellationRequested) break;
+
+                                // 转换类型
+                                int seed = (int)long_seed;
 
                                 // 检查是否符合所有启用的功能条件
                                 bool allMatch = true;
@@ -309,6 +312,12 @@ namespace StardewSeedSearcher
                                         elapsed = Math.Round(stopwatch.Elapsed.TotalSeconds, 1),
                                         featureStats = stats
                                     }));
+                                }
+
+                                // 到达最大种子值
+                                if (seed == int.MaxValue) 
+                                {
+                                    break; 
                                 }
                             }
                         });
