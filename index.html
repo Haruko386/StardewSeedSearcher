@@ -22,7 +22,7 @@
         
         <div class="header-title-box">
             <h1>星露谷物语</h1>
-            <div class="subtitle">脆音音种子搜索器 V0.6.5</div>
+            <div class="subtitle">脆音音种子搜索器 V1.0</div>
         </div>
 
         <!-- 右侧个人头像 -->
@@ -48,7 +48,10 @@
                 <details class="features-details">
                     <summary class="features-summary">功能说明</summary>
                     <ul class="features-list">
-                        最后更新日期：2026.4.5<br>
+
+                        <h4>作者：<a href="https://space.bilibili.com/349111916" target="_blank">脆音音</a></h4><br>
+                        
+                        最后更新日期：2026.6.12<br>
                         适配最新星露谷版本：1.6.15<br>
                         搜索结果支持游戏平台：PC/安卓/iOS
 
@@ -61,7 +64,7 @@
                         <br>
 
                         <h4 style="margin-bottom: 15px;">使用旧随机模式</h4>
-                        <li>必须在创建存档时勾选“使用传统随机”，随机模式会改变。</li>
+                        <li>如果计划在创建存档时勾选“使用传统随机”，请在搜种器勾选“使用旧随机模式”搜索，否则结果会不符。</li>
                         <li>脆音音有话说：除非一定要粘土做花盆，不然还是打新随机吧，时代变了！<s>旧随机是和魔鬼的交易</s></li>
                         <br>
 
@@ -80,13 +83,14 @@
                         <h4 style="margin-bottom: 15px;">矿井混合宝箱筛选</h4>
                         <li>筛选符合特定混合宝箱物品的种子。</li>
                         <li>可多条件筛选，层数不可重叠。多条件视为必须同时满足。</li>
-                        <li>必须在创建存档时勾选混合矿井，否则为默认物品。</li>
+                        <li>必须在创建存档时勾选<a href="https://wiki.biligame.com/stardewvalley/%E7%9F%BF%E4%BA%95#%E9%87%8D%E6%96%B0%E6%B7%B7%E5%90%88%E7%9A%84%E5%A5%96%E5%8A%B1%E5%B1%82" target="_blank">混合矿井</a>，否则宝箱只会产出默认物品。</li>
                         <br>
 
                         <h4 style="margin-bottom: 15px;">矿井怪物层筛选</h4>
                         <li>筛选特定日期和层数区间没有怪物层的种子，方便冲层。目前只支持第一年。</li>
                         <li>可多条件筛选，层数不可重叠。</li>
-                        <li>包含史莱姆层和怪物层，不包括采石场感染头骨层。仅预测鹈鹕镇矿井，不包含沙漠矿井怪物层。</li>
+                        <li>包含史莱姆层和怪物层，不包括采石场感染头骨层。</li>
+                        <li>仅预测鹈鹕镇矿井，不包含沙漠矿井怪物层。</li>
                         <br>
 
                         <h4 style="margin-bottom: 15px;">沙漠节商人筛选</h4>
@@ -146,13 +150,13 @@
 
                 <!-- 天气功能 -->
                 <div class="checkbox-group">
-                    <!-- <input type="checkbox" id="weatherEnabled" checked> -->
-                    <input type="checkbox" id="weatherEnabled">
+                    <input type="checkbox" id="weatherEnabled" checked>
+                    <!-- <input type="checkbox" id="weatherEnabled"> -->
                     <label for="weatherEnabled">启用天气筛选</label>
                     <span style="font-size: 14px; color: #a6a6a6">目前只支持第一年，雨天包含绿雨和雷雨。</span>
                 </div>
-                <!-- <div class="condition-config" id="weatherConfig"> -->
-                <div class="condition-config" id="weatherConfig" style="display: none;">
+                <div class="condition-config" id="weatherConfig">
+                <!-- <div class="condition-config" id="weatherConfig" style="display: none;"> -->
                     <h4 style="margin-bottom: 15px;">天气筛选条件</h4>
 
                     <!-- 初始不放内容，由 JavaScript 动态添加，或者在页面加载时调用 addCondition() -->
@@ -191,14 +195,14 @@
 
                 <!-- 仙子功能 -->
                 <div class="checkbox-group">
-                    <!-- <input type="checkbox" id="fairyEnabled"> -->
-                    <input type="checkbox" id="fairyEnabled" checked>
+                    <input type="checkbox" id="fairyEnabled">
+                    <!-- <input type="checkbox" id="fairyEnabled" checked> -->
                     <label for="fairyEnabled">启用仙子筛选</label>
                     <span style="font-size: 14px; color: #a6a6a6">仙子事件可能会被其他事件覆盖。例：春3下雨则春2仙子失效，夏3地震则夏2仙子失效等。</span>
 
                 </div>
-                <div class="condition-config" id="fairyConfig">
-                <!-- <div class="condition-config" id="fairyConfig" style="display: none;"> -->
+                <!-- <div class="condition-config" id="fairyConfig"> -->
+                <div class="condition-config" id="fairyConfig" style="display: none;">
                     <h4 style="margin-bottom: 15px;">仙子筛选条件</h4>
 
                     <!-- 初始不放内容，由 JavaScript 动态添加，或者在页面加载时调用 addCondition() -->
