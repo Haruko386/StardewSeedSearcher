@@ -145,29 +145,33 @@ function absoluteDayToDate(absoluteDay) {
 // 天气
 elements.weatherEnabled.addEventListener('change', (e) => {
     elements.weatherConfig.style.display = e.target.checked ? 'block' : 'none';
-    refreshMaxTracker(); //更新天气条件时刷新
+    elements.weatherConfig.querySelectorAll('input, select').forEach(el => el.disabled = !e.target.checked);
 });
 // 仙子
 elements.fairyEnabled.addEventListener('change', (e) => {
     elements.fairyConfig.style.display = e.target.checked ? 'block' : 'none';
-    refreshMaxTracker(); //更新仙子条件时刷新
+    elements.fairyConfig.querySelectorAll('input, select').forEach(el => el.disabled = !e.target.checked);
 });
 // 混合矿井宝箱
 elements.mineChestEnabled.addEventListener('change', (e) => {
     elements.mineChestConfig.style.display = e.target.checked ? 'block' : 'none';
+    elements.mineChestConfig.querySelectorAll('input, select').forEach(el => el.disabled = !e.target.checked);
 });
 // 怪物层
 elements.monsterLevelEnabled.addEventListener('change', (e) => {
     elements.monsterLevelConfig.style.display = e.target.checked ? 'block' : 'none';
+    elements.monsterLevelConfig.querySelectorAll('input, select').forEach(el => el.disabled = !e.target.checked);
 });
 // 沙漠节
 elements.desertFestivalEnabled.addEventListener('change', (e) => {
     elements.desertFestivalConfig.style.display = e.target.checked ? 'block' : 'none';
+    elements.desertFestivalConfig.querySelectorAll('input, select').forEach(el => el.disabled = !e.target.checked);
 });
 
 // 猪车
 elements.cartEnabled.addEventListener('change', (e) => {
     elements.cartConfig.style.display = e.target.checked ? 'block' : 'none';
+    elements.cartConfig.querySelectorAll('input, select').forEach(el => el.disabled = !e.target.checked);
 });
 
 document.getElementById('trackerEnabled').addEventListener('change', (e) => {
