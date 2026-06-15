@@ -1,4 +1,6 @@
 # 使用方法
+[介绍视频](https://www.bilibili.com/video/BV1XTJV6CEvj/)
+
 [搜种器下载](https://github.com/CuiYinYin2023/StardewSeedSearcher/releases)
 
 点击`start.bat`运行
