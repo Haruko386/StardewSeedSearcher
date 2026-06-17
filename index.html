@@ -10,7 +10,23 @@
 </head>
 
 <body>
-    <div class="connection-status" id="connectionStatus">连接中...</div>
+    <div class="connection-widget">
+        <div class="connection-status" id="connectionStatus">连接中...</div>
+        <button type="button" class="backend-toggle" id="backendToggle" aria-label="后端设置" title="后端设置">⚙</button>
+        <div class="backend-popover" id="backendPopover">
+            <div class="backend-field">
+                <label for="backendMode">后端模式</label>
+                <select id="backendMode">
+                    <option value="csharp">纯 C#</option>
+                    <option value="hybrid">Go + C# 混合</option>
+                </select>
+            </div>
+            <div class="backend-field">
+                <label for="backendCustomOrigin">端口地址</label>
+                <input type="text" id="backendCustomOrigin" placeholder="http://localhost:5050">
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <div class="header">

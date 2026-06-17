@@ -1,6 +1,9 @@
 let ws = null;
+let wsConnectionToken = 0;
+let wsReconnectTimer = null;
 let isSearching = false;
 let foundSeeds = [];
+let foundSeedSet = new Set();
 let currentSearchUseLegacy = false;
 let seedDetailsCache = {};
 let nextStartSeed = 0;
@@ -17,6 +20,86 @@ let monsterLevelConditions = [];
 let nextMonsterLevelIndex = 1;
 
 let ALL_CART_ITEM_NAMES = [];
+let pendingAnalysisUpdate = null;
+let analysisUpdateTimer = null;
+let lastAnalysisRenderTime = 0;
+const ANALYSIS_RENDER_INTERVAL = 500;
+
+const DEFAULT_BACKEND_ORIGIN = 'http://localhost:5000';
+const HYBRID_BACKEND_ORIGIN = 'http://localhost:5050';
+const BACKEND_STORAGE_KEY = 'stardewSeedSearcher.backendOrigin';
+const BACKEND_MODE_STORAGE_KEY = 'stardewSeedSearcher.backendMode';
+
+function normalizeBackendOrigin(value) {
+    const raw = (value || '').trim();
+    if (!raw) return DEFAULT_BACKEND_ORIGIN;
+
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+    try {
+        const url = new URL(withProtocol);
+        return url.origin;
+    } catch {
+        return DEFAULT_BACKEND_ORIGIN;
+    }
+}
+
+function loadBackendOrigin() {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get('backend') || params.get('api');
+    if (fromQuery) {
+        const origin = normalizeBackendOrigin(fromQuery);
+        localStorage.setItem(BACKEND_STORAGE_KEY, origin);
+        return origin;
+    }
+
+    return normalizeBackendOrigin(localStorage.getItem(BACKEND_STORAGE_KEY) || DEFAULT_BACKEND_ORIGIN);
+}
+
+let backendOrigin = loadBackendOrigin();
+let backendMode = backendOrigin === HYBRID_BACKEND_ORIGIN
+    ? 'hybrid'
+    : backendOrigin === DEFAULT_BACKEND_ORIGIN
+        ? 'csharp'
+        : (localStorage.getItem(BACKEND_MODE_STORAGE_KEY) || 'csharp');
+
+function apiUrl(path) {
+    return `${backendOrigin}${path}`;
+}
+
+function webSocketUrl(path) {
+    const url = new URL(path, backendOrigin);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
+}
+
+function setBackendMode(mode, shouldReconnect = true) {
+    backendMode = mode === 'hybrid' ? 'hybrid' : 'csharp';
+    localStorage.setItem(BACKEND_MODE_STORAGE_KEY, backendMode);
+
+    const modeDefault = backendMode === 'hybrid' ? HYBRID_BACKEND_ORIGIN : DEFAULT_BACKEND_ORIGIN;
+    const otherDefault = backendMode === 'hybrid' ? DEFAULT_BACKEND_ORIGIN : HYBRID_BACKEND_ORIGIN;
+    if (!backendOrigin || backendOrigin === otherDefault) {
+        backendOrigin = modeDefault;
+        localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
+    }
+
+    updateBackendControls();
+    if (shouldReconnect) {
+        reconnectBackend();
+    }
+}
+
+function reconnectBackend() {
+    if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+    }
+    connectWebSocket();
+    loadCartItems();
+}
 
 const elements = {
     form: document.getElementById('searchForm'),
@@ -62,6 +145,56 @@ const elements = {
     cartConditionsContainer: document.getElementById('cartConditionsContainer'),
     cartConditionError: document.getElementById('cartConditionError')
 };
+
+function updateBackendControls() {
+    const mode = document.getElementById('backendMode');
+    const custom = document.getElementById('backendCustomOrigin');
+    if (!mode || !custom) return;
+
+    mode.value = backendMode;
+    custom.value = backendOrigin;
+    custom.style.display = 'block';
+}
+
+function initializeBackendControls() {
+    const mode = document.getElementById('backendMode');
+    const custom = document.getElementById('backendCustomOrigin');
+    const toggle = document.getElementById('backendToggle');
+    const popover = document.getElementById('backendPopover');
+    if (!mode || !custom) return;
+
+    updateBackendControls();
+
+    mode.addEventListener('change', () => {
+        backendOrigin = mode.value === 'hybrid' ? HYBRID_BACKEND_ORIGIN : DEFAULT_BACKEND_ORIGIN;
+        localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
+        setBackendMode(mode.value);
+    });
+
+    custom.addEventListener('change', () => {
+        backendOrigin = normalizeBackendOrigin(custom.value);
+        localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
+        updateBackendControls();
+        reconnectBackend();
+    });
+
+    if (toggle && popover) {
+        toggle.addEventListener('click', (event) => {
+            event.stopPropagation();
+            popover.classList.toggle('open');
+        });
+
+        popover.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
+
+        document.addEventListener('click', () => {
+            popover.classList.remove('open');
+        });
+    }
+
+    setBackendMode(backendMode, false);
+}
 
 // 混合宝箱数据
 const MINE_CHEST_ITEMS = {
@@ -396,7 +529,7 @@ function validateMonsterLevelCondition(condition) {
 // 加载所有猪车物品列表
 async function loadCartItems() {
     try {
-        const response = await fetch('http://localhost:5000/api/cart-items');
+        const response = await fetch(apiUrl('/api/cart-items'));
         ALL_CART_ITEM_NAMES = await response.json();
         initializeCartItemList(); // 更新datalist
     } catch (error) {
@@ -519,6 +652,7 @@ function updateOutputLimitMax() {
 document.addEventListener('DOMContentLoaded', function () {
 
     // 天气条件初始化
+    initializeBackendControls();
     addWeatherCondition();
 
     // 仙子条件初始化
@@ -565,30 +699,50 @@ document.addEventListener('DOMContentLoaded', updateOutputLimitMax);
 document.getElementById('startSeed').addEventListener('change', updateOutputLimitMax);
 
 function connectWebSocket() {
+    const token = ++wsConnectionToken;
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+    if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+            ws.close();
+        }
+    }
+
     elements.connectionStatus.textContent = '连接中...';
     elements.connectionStatus.className = 'connection-status connecting';
 
-    ws = new WebSocket('ws://localhost:5000/ws');
+    const socket = new WebSocket(webSocketUrl('/ws'));
+    ws = socket;
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+        if (token !== wsConnectionToken || socket !== ws) return;
         elements.connectionStatus.textContent = '✓ 已连接';
         elements.connectionStatus.className = 'connection-status connected';
     };
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+        if (token !== wsConnectionToken || socket !== ws) return;
         const data = JSON.parse(event.data);
         handleWebSocketMessage(data);
     };
 
-    ws.onerror = () => {
+    socket.onerror = () => {
+        if (token !== wsConnectionToken || socket !== ws) return;
         elements.connectionStatus.textContent = '✗ 连接失败';
         elements.connectionStatus.className = 'connection-status disconnected';
     };
 
-    ws.onclose = () => {
+    socket.onclose = () => {
+        if (token !== wsConnectionToken || socket !== ws) return;
         elements.connectionStatus.textContent = '✗ 未连接';
         elements.connectionStatus.className = 'connection-status disconnected';
-        setTimeout(connectWebSocket, 5000);
+        wsReconnectTimer = setTimeout(connectWebSocket, 5000);
     };
 }
 
@@ -596,6 +750,7 @@ function handleWebSocketMessage(data) {
     switch (data.type) {
         case 'start':
             foundSeeds = [];
+            foundSeedSet.clear();
             elements.seedList.innerHTML = '';
             elements.resultsSection.style.display = 'block';
 
@@ -605,7 +760,7 @@ function handleWebSocketMessage(data) {
             document.getElementById('analysisStoppedEarly').textContent = '?';
             document.getElementById('analysisStoppedEarly').style.color = '#999';
 
-            const filterStatsList = document.getElementById('filterstatsList');
+            const filterStatsList = document.getElementById('filterStatsList');
             if (filterStatsList) { filterStatsList.innerHTML = ''; }
             break;
 
@@ -626,11 +781,15 @@ function handleWebSocketMessage(data) {
             elements.progressBar.textContent = progressInt + '%';
             //把统计更新掉
             if (data.featureStats && data.featureStats.length > 0) {
-                updateAnalysisUI(data.featureStats, data.checkedCount, foundSeeds.length);
+                scheduleAnalysisUpdate(data.featureStats, data.checkedCount, foundSeeds.length);
             }
             break;
 
         case 'found':
+            if (foundSeedSet.has(data.seed)) {
+                break;
+            }
+            foundSeedSet.add(data.seed);
             foundSeeds.push(data.seed);
             elements.foundCount.textContent = foundSeeds.length;
 
@@ -659,6 +818,7 @@ function handleWebSocketMessage(data) {
             break;
 
         case 'complete':
+            flushPendingAnalysisUpdate();
             elements.statusMessage.textContent = data.cancelled
                 ? `搜索已停止，共找到 ${data.totalFound} 个符合条件的种子`
                 : `搜索完成！找到 ${data.totalFound} 个符合条件的种子`;
@@ -708,6 +868,18 @@ function updateResultsSummary() {
 /**
  * 导出结果到 TXT 文件
  */
+function normalizeCartMatch(match) {
+    return {
+        Year: match.Year ?? match.year,
+        Season: match.Season ?? match.season,
+        Day: match.Day ?? match.day,
+        AbsoluteDay: match.AbsoluteDay ?? match.absoluteDay,
+        ItemName: match.ItemName ?? match.itemName,
+        Quantity: match.Quantity ?? match.quantity,
+        Price: match.Price ?? match.price
+    };
+}
+
 function exportResultsToTxt() {
     if (foundSeeds.length === 0) {
         alert("没有可导出的种子结果！");
@@ -845,7 +1017,7 @@ elements.form.addEventListener('submit', async (e) => {
 
     // 如果正在搜索，点击按钮则停止搜索
     if (isSearching) {
-        await fetch('http://localhost:5000/api/stop', { method: 'POST' });
+        await fetch(apiUrl('/api/stop'), { method: 'POST' });
         return;
     }
 
@@ -1117,7 +1289,7 @@ elements.form.addEventListener('submit', async (e) => {
 
     // 发送搜索请求
     try {
-        const response = await fetch('http://localhost:5000/api/search', {
+        const response = await fetch(apiUrl('/api/search'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1326,7 +1498,7 @@ function showSeedDetail(seed) {
     if (enabled.cart && details.cart && details.cart.matches && details.cart.matches.length > 0) {
 
         // 1. 按AbsoluteDay升序排序，确保展示顺序正确
-        const sortedMatches = [...details.cart.matches].sort((a, b) => a.AbsoluteDay - b.AbsoluteDay);
+        const sortedMatches = details.cart.matches.map(normalizeCartMatch).sort((a, b) => a.AbsoluteDay - b.AbsoluteDay);
 
         // 2. 按物品名分组（保持首次出现顺序）
         const groupMap = new Map();
@@ -1434,6 +1606,34 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
+
+function scheduleAnalysisUpdate(stats, currentChecked, totalFound) {
+    pendingAnalysisUpdate = { stats, currentChecked, totalFound };
+    const now = performance.now();
+    const remaining = ANALYSIS_RENDER_INTERVAL - (now - lastAnalysisRenderTime);
+
+    if (remaining <= 0) {
+        flushPendingAnalysisUpdate();
+        return;
+    }
+
+    if (!analysisUpdateTimer) {
+        analysisUpdateTimer = setTimeout(flushPendingAnalysisUpdate, remaining);
+    }
+}
+
+function flushPendingAnalysisUpdate() {
+    if (analysisUpdateTimer) {
+        clearTimeout(analysisUpdateTimer);
+        analysisUpdateTimer = null;
+    }
+    if (!pendingAnalysisUpdate) return;
+
+    const update = pendingAnalysisUpdate;
+    pendingAnalysisUpdate = null;
+    lastAnalysisRenderTime = performance.now();
+    updateAnalysisUI(update.stats, update.currentChecked, update.totalFound);
+}
 
 function updateAnalysisUI(stats, currentChecked, totalFound) {
     document.getElementById('analysisTotalRange').textContent = currentChecked.toLocaleString();
