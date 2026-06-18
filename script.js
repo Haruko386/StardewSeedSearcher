@@ -29,38 +29,76 @@ const DEFAULT_BACKEND_ORIGIN = 'http://localhost:5000';
 const HYBRID_BACKEND_ORIGIN = 'http://localhost:5050';
 const BACKEND_STORAGE_KEY = 'stardewSeedSearcher.backendOrigin';
 const BACKEND_MODE_STORAGE_KEY = 'stardewSeedSearcher.backendMode';
+const BACKEND_ORIGINS_STORAGE_KEY = 'stardewSeedSearcher.backendOrigins';
 
-function normalizeBackendOrigin(value) {
+function getBackendDefaultOrigin(mode) {
+    return mode === 'hybrid' ? HYBRID_BACKEND_ORIGIN : DEFAULT_BACKEND_ORIGIN;
+}
+
+function normalizeBackendOrigin(value, fallback = DEFAULT_BACKEND_ORIGIN) {
     const raw = (value || '').trim();
-    if (!raw) return DEFAULT_BACKEND_ORIGIN;
+    if (!raw) return fallback;
 
     const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
     try {
         const url = new URL(withProtocol);
         return url.origin;
     } catch {
-        return DEFAULT_BACKEND_ORIGIN;
+        return fallback;
     }
 }
 
-function loadBackendOrigin() {
+function loadBackendSettings() {
+    const savedMode = localStorage.getItem(BACKEND_MODE_STORAGE_KEY);
+    let mode = savedMode === 'hybrid' ? 'hybrid' : 'csharp';
+    const origins = {
+        csharp: DEFAULT_BACKEND_ORIGIN,
+        hybrid: HYBRID_BACKEND_ORIGIN
+    };
+
+    try {
+        const savedOrigins = JSON.parse(localStorage.getItem(BACKEND_ORIGINS_STORAGE_KEY) || '{}');
+        if (savedOrigins && typeof savedOrigins === 'object') {
+            if (savedOrigins.csharp) {
+                origins.csharp = normalizeBackendOrigin(savedOrigins.csharp, DEFAULT_BACKEND_ORIGIN);
+            }
+            if (savedOrigins.hybrid) {
+                origins.hybrid = normalizeBackendOrigin(savedOrigins.hybrid, HYBRID_BACKEND_ORIGIN);
+            }
+        }
+    } catch {
+        // 忽略损坏的本地配置，继续使用默认地址。
+    }
+
+    const oldOrigin = localStorage.getItem(BACKEND_STORAGE_KEY);
+    if (oldOrigin) {
+        const guessedMode = oldOrigin === HYBRID_BACKEND_ORIGIN ? 'hybrid' : oldOrigin === DEFAULT_BACKEND_ORIGIN ? 'csharp' : mode;
+        origins[guessedMode] = normalizeBackendOrigin(oldOrigin, getBackendDefaultOrigin(guessedMode));
+        mode = guessedMode;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const fromQuery = params.get('backend') || params.get('api');
     if (fromQuery) {
-        const origin = normalizeBackendOrigin(fromQuery);
-        localStorage.setItem(BACKEND_STORAGE_KEY, origin);
-        return origin;
+        const origin = normalizeBackendOrigin(fromQuery, getBackendDefaultOrigin(mode));
+        mode = origin === HYBRID_BACKEND_ORIGIN ? 'hybrid' : origin === DEFAULT_BACKEND_ORIGIN ? 'csharp' : mode;
+        origins[mode] = origin;
     }
 
-    return normalizeBackendOrigin(localStorage.getItem(BACKEND_STORAGE_KEY) || DEFAULT_BACKEND_ORIGIN);
+    return { mode, origins };
 }
 
-let backendOrigin = loadBackendOrigin();
-let backendMode = backendOrigin === HYBRID_BACKEND_ORIGIN
-    ? 'hybrid'
-    : backendOrigin === DEFAULT_BACKEND_ORIGIN
-        ? 'csharp'
-        : (localStorage.getItem(BACKEND_MODE_STORAGE_KEY) || 'csharp');
+function saveBackendSettings() {
+    localStorage.setItem(BACKEND_MODE_STORAGE_KEY, backendMode);
+    localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
+    localStorage.setItem(BACKEND_ORIGINS_STORAGE_KEY, JSON.stringify(backendOrigins));
+}
+
+const backendSettings = loadBackendSettings();
+let backendOrigins = backendSettings.origins;
+let backendMode = backendSettings.mode;
+let backendOrigin = backendOrigins[backendMode] || getBackendDefaultOrigin(backendMode);
+saveBackendSettings();
 
 function apiUrl(path) {
     return `${backendOrigin}${path}`;
@@ -74,17 +112,27 @@ function webSocketUrl(path) {
 
 function setBackendMode(mode, shouldReconnect = true) {
     backendMode = mode === 'hybrid' ? 'hybrid' : 'csharp';
-    localStorage.setItem(BACKEND_MODE_STORAGE_KEY, backendMode);
-
-    const modeDefault = backendMode === 'hybrid' ? HYBRID_BACKEND_ORIGIN : DEFAULT_BACKEND_ORIGIN;
-    const otherDefault = backendMode === 'hybrid' ? DEFAULT_BACKEND_ORIGIN : HYBRID_BACKEND_ORIGIN;
-    if (!backendOrigin || backendOrigin === otherDefault) {
-        backendOrigin = modeDefault;
-        localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
-    }
+    backendOrigin = backendOrigins[backendMode] || getBackendDefaultOrigin(backendMode);
+    saveBackendSettings();
 
     updateBackendControls();
     if (shouldReconnect) {
+        reconnectBackend();
+    }
+}
+
+function setBackendOriginForMode(mode, value, shouldReconnect = true) {
+    const nextMode = mode === 'hybrid' ? 'hybrid' : 'csharp';
+    backendOrigins[nextMode] = normalizeBackendOrigin(value, getBackendDefaultOrigin(nextMode));
+
+    if (backendMode === nextMode) {
+        backendOrigin = backendOrigins[nextMode];
+    }
+
+    saveBackendSettings();
+    updateBackendControls();
+
+    if (shouldReconnect && backendMode === nextMode) {
         reconnectBackend();
     }
 }
@@ -147,53 +195,98 @@ const elements = {
 };
 
 function updateBackendControls() {
-    const mode = document.getElementById('backendMode');
-    const custom = document.getElementById('backendCustomOrigin');
-    if (!mode || !custom) return;
+    const csharpInput = document.getElementById('backendOriginCsharp');
+    const hybridInput = document.getElementById('backendOriginHybrid');
+    const popover = document.getElementById('backendPopover');
+    const widget = document.getElementById('connectionWidget');
+    if (!csharpInput || !hybridInput) return;
 
-    mode.value = backendMode;
-    custom.value = backendOrigin;
-    custom.style.display = 'block';
+    csharpInput.value = backendOrigins.csharp || DEFAULT_BACKEND_ORIGIN;
+    hybridInput.value = backendOrigins.hybrid || HYBRID_BACKEND_ORIGIN;
+
+    document.querySelectorAll('.backend-option').forEach(option => {
+        option.classList.toggle('active', option.dataset.backendMode === backendMode);
+    });
+
+    if (widget && popover) {
+        widget.classList.toggle('open', popover.classList.contains('open'));
+    }
+}
+
+function setBackendPopoverOpen(isOpen) {
+    const widget = document.getElementById('connectionWidget');
+    const popover = document.getElementById('backendPopover');
+    const toggle = document.getElementById('backendToggle');
+    if (!popover) return;
+
+    popover.classList.toggle('open', isOpen);
+    if (widget) widget.classList.toggle('open', isOpen);
+    if (toggle) toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
 }
 
 function initializeBackendControls() {
-    const mode = document.getElementById('backendMode');
-    const custom = document.getElementById('backendCustomOrigin');
     const toggle = document.getElementById('backendToggle');
     const popover = document.getElementById('backendPopover');
-    if (!mode || !custom) return;
+    const originInputs = document.querySelectorAll('.backend-origin-input');
+    const backendOptions = document.querySelectorAll('.backend-option');
+    if (!toggle || !popover || originInputs.length === 0) return;
 
     updateBackendControls();
 
-    mode.addEventListener('change', () => {
-        backendOrigin = mode.value === 'hybrid' ? HYBRID_BACKEND_ORIGIN : DEFAULT_BACKEND_ORIGIN;
-        localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
-        setBackendMode(mode.value);
-    });
-
-    custom.addEventListener('change', () => {
-        backendOrigin = normalizeBackendOrigin(custom.value);
-        localStorage.setItem(BACKEND_STORAGE_KEY, backendOrigin);
-        updateBackendControls();
-        reconnectBackend();
-    });
-
-    if (toggle && popover) {
-        toggle.addEventListener('click', (event) => {
-            event.stopPropagation();
-            popover.classList.toggle('open');
+    backendOptions.forEach(option => {
+        option.addEventListener('click', () => {
+            setBackendMode(option.dataset.backendMode);
         });
+    });
 
-        popover.addEventListener('click', (event) => {
+    originInputs.forEach(input => {
+        input.addEventListener('click', (event) => {
+            // 点击地址框时仍然保留面板，不触发页面外点击关闭。
             event.stopPropagation();
         });
 
-        document.addEventListener('click', () => {
-            popover.classList.remove('open');
+        input.addEventListener('focus', () => {
+            setBackendMode(input.dataset.backendMode);
         });
-    }
+
+        input.addEventListener('change', () => {
+            setBackendOriginForMode(input.dataset.backendMode, input.value);
+        });
+
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                input.blur();
+            }
+        });
+    });
+
+    toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setBackendPopoverOpen(!popover.classList.contains('open'));
+    });
+
+    popover.addEventListener('click', (event) => {
+        event.stopPropagation();
+    });
+
+    document.addEventListener('click', () => {
+        setBackendPopoverOpen(false);
+    });
 
     setBackendMode(backendMode, false);
+}
+
+function updateConnectionState(text, state) {
+    const pill = document.getElementById('connectionPill');
+    const normalizedState = ['connected', 'disconnected', 'connecting'].includes(state) ? state : 'connecting';
+
+    elements.connectionStatus.textContent = text;
+    elements.connectionStatus.className = `connection-status ${normalizedState}`;
+
+    if (pill) {
+        pill.classList.remove('connected', 'disconnected', 'connecting');
+        pill.classList.add(normalizedState);
+    }
 }
 
 // 混合宝箱数据
@@ -714,16 +807,14 @@ function connectWebSocket() {
         }
     }
 
-    elements.connectionStatus.textContent = '连接中...';
-    elements.connectionStatus.className = 'connection-status connecting';
+    updateConnectionState('连接中...', 'connecting');
 
     const socket = new WebSocket(webSocketUrl('/ws'));
     ws = socket;
 
     socket.onopen = () => {
         if (token !== wsConnectionToken || socket !== ws) return;
-        elements.connectionStatus.textContent = '✓ 已连接';
-        elements.connectionStatus.className = 'connection-status connected';
+        updateConnectionState('✓ 已连接', 'connected');
     };
 
     socket.onmessage = (event) => {
@@ -734,14 +825,12 @@ function connectWebSocket() {
 
     socket.onerror = () => {
         if (token !== wsConnectionToken || socket !== ws) return;
-        elements.connectionStatus.textContent = '✗ 连接失败';
-        elements.connectionStatus.className = 'connection-status disconnected';
+        updateConnectionState('✗ 连接失败', 'disconnected');
     };
 
     socket.onclose = () => {
         if (token !== wsConnectionToken || socket !== ws) return;
-        elements.connectionStatus.textContent = '✗ 未连接';
-        elements.connectionStatus.className = 'connection-status disconnected';
+        updateConnectionState('✗ 未连接', 'disconnected');
         wsReconnectTimer = setTimeout(connectWebSocket, 5000);
     };
 }
