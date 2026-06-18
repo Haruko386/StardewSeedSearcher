@@ -21,10 +21,12 @@ type Hub struct {
 	conns map[*Conn]struct{}
 }
 
+// NewHub creates an empty WebSocket connection hub.
 func NewHub() *Hub {
 	return &Hub{conns: make(map[*Conn]struct{})}
 }
 
+// ServeHTTP upgrades HTTP requests and registers WebSocket clients.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		http.Error(w, "websocket upgrade required", http.StatusBadRequest)
@@ -66,6 +68,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// Broadcast sends a JSON message to all connected clients.
 func (h *Hub) Broadcast(value any) {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -87,12 +90,14 @@ func (h *Hub) Broadcast(value any) {
 	}
 }
 
+// add registers a connection in the hub.
 func (h *Hub) add(conn *Conn) {
 	h.mu.Lock()
 	h.conns[conn] = struct{}{}
 	h.mu.Unlock()
 }
 
+// remove unregisters a connection from the hub.
 func (h *Hub) remove(conn *Conn) {
 	h.mu.Lock()
 	delete(h.conns, conn)
@@ -104,6 +109,7 @@ type Conn struct {
 	mu   sync.Mutex
 }
 
+// SendText writes one unmasked text frame to the client.
 func (c *Conn) SendText(payload []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -135,11 +141,13 @@ func (c *Conn) SendText(payload []byte) error {
 	return err
 }
 
+// websocketAccept computes the RFC 6455 accept key.
 func websocketAccept(key string) string {
 	sum := sha1.Sum([]byte(key + acceptGUID))
 	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
+// readLoop drains client frames until the socket closes.
 func readLoop(reader *bufio.Reader, conn net.Conn) {
 	for {
 		first, err := reader.ReadByte()

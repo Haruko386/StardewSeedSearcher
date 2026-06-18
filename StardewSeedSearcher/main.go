@@ -33,6 +33,7 @@ func main() {
 	}
 	defer pool.Close()
 
+	// set addr via os.env
 	addr := strings.TrimSpace(os.Getenv("SEED_GO_ADDR"))
 	if addr == "" {
 		addr = "localhost:5050"

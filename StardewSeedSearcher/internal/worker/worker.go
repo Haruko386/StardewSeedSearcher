@@ -50,6 +50,7 @@ type Pool struct {
 	next    atomic.Uint64
 }
 
+// NewPool starts a pool of long-lived C# worker clients.
 func NewPool(ctx context.Context, size int) (*Pool, error) {
 	if size < 1 {
 		size = 1
@@ -70,10 +71,12 @@ func NewPool(ctx context.Context, size int) (*Pool, error) {
 	return &Pool{clients: clients}, nil
 }
 
+// Len returns the number of workers in the pool.
 func (p *Pool) Len() int {
 	return len(p.clients)
 }
 
+// Call sends a request to the next worker in round-robin order.
 func (p *Pool) Call(req Request) (Response, error) {
 	if len(p.clients) == 0 {
 		return Response{}, errors.New("worker pool is empty")
@@ -82,6 +85,7 @@ func (p *Pool) Call(req Request) (Response, error) {
 	return p.CallAt(index, req)
 }
 
+// CallAt sends a request to the worker at the given index.
 func (p *Pool) CallAt(index int, req Request) (Response, error) {
 	if len(p.clients) == 0 {
 		return Response{}, errors.New("worker pool is empty")
@@ -93,6 +97,7 @@ func (p *Pool) CallAt(index int, req Request) (Response, error) {
 	return p.clients[index].Call(req)
 }
 
+// Close stops all worker clients in the pool.
 func (p *Pool) Close() {
 	for _, client := range p.clients {
 		client.Close()
@@ -108,6 +113,7 @@ type Client struct {
 	seq    atomic.Uint64
 }
 
+// Start launches one C# worker process and wraps it as a client.
 func Start(ctx context.Context, id int) (*Client, error) {
 	name, args, workDir, err := resolveWorkerCommand()
 	if err != nil {
@@ -152,6 +158,7 @@ func Start(ctx context.Context, id int) (*Client, error) {
 	return client, nil
 }
 
+// Call sends one JSON-line request and waits for one JSON-line response.
 func (c *Client) Call(req Request) (Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -185,6 +192,7 @@ func (c *Client) Call(req Request) (Response, error) {
 	return resp, nil
 }
 
+// Close terminates the underlying C# worker process.
 func (c *Client) Close() {
 	_ = c.stdin.Close()
 	if c.cmd != nil && c.cmd.Process != nil {
@@ -192,6 +200,7 @@ func (c *Client) Close() {
 	}
 }
 
+// resolveWorkerCommand locates or builds the C# worker entry point.
 func resolveWorkerCommand() (string, []string, string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -231,6 +240,7 @@ func resolveWorkerCommand() (string, []string, string, error) {
 	return "", nil, "", fmt.Errorf("StardewSeedSearcher.csproj was not found under %s", cwd)
 }
 
+// logWorkerStderr forwards worker stderr lines to the Go logger.
 func logWorkerStderr(id int, reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {

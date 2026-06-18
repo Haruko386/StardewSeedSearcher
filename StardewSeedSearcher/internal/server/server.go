@@ -31,6 +31,7 @@ type searchRun struct {
 	cancelled atomic.Bool
 }
 
+// New creates a server with the given C# worker pool.
 func New(pool *worker.Pool) *Server {
 	return &Server{
 		pool: pool,
@@ -38,6 +39,7 @@ func New(pool *worker.Pool) *Server {
 	}
 }
 
+// ListenAndServe starts the HTTP server and shuts it down with the context.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.withCORS(s.handleRoot))
@@ -68,6 +70,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	}
 }
 
+// withCORS wraps a handler with permissive local-development CORS headers.
 func (s *Server) withCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -81,6 +84,7 @@ func (s *Server) withCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// handleRoot returns a small status page for the hybrid backend.
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -90,6 +94,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("<!doctype html><meta charset=\"utf-8\"><title>StardewSeedSearcher</title><p>Go+C# hybrid backend is running.</p>"))
 }
 
+// handleHealth reports basic backend health and worker count.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
@@ -98,6 +103,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSeasons returns the fixed season list used by the frontend.
 func (s *Server) handleSeasons(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []map[string]any{
 		{"id": 0, "name": "\u6625"},
@@ -107,6 +113,7 @@ func (s *Server) handleSeasons(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleCartItems asks C# for the traveling cart item list.
 func (s *Server) handleCartItems(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -121,6 +128,7 @@ func (s *Server) handleCartItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp.Items)
 }
 
+// handleSearch starts an asynchronous seed search run.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -161,6 +169,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Search started."})
 }
 
+// handleStop cancels the currently active search run.
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -177,6 +186,7 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Stop requested."})
 }
 
+// runSearch partitions the seed range and streams worker results to clients.
 func (s *Server) runSearch(ctx context.Context, run *searchRun, raw json.RawMessage, req searchRequest) {
 	started := time.Now()
 	total := req.EndSeed - req.StartSeed + 1
@@ -320,6 +330,7 @@ func (s *Server) runSearch(ctx context.Context, run *searchRun, raw json.RawMess
 	s.mu.Unlock()
 }
 
+// broadcastProgress sends a throttled progress update to WebSocket clients.
 func (s *Server) broadcastProgress(checked int64, total int64, started time.Time, stats []worker.FeatureStat) {
 	elapsed := time.Since(started).Seconds()
 	speed := float64(0)
@@ -362,10 +373,12 @@ type statCounter struct {
 	order  []string
 }
 
+// newStatCounter creates an ordered pass-count accumulator.
 func newStatCounter() *statCounter {
 	return &statCounter{counts: make(map[string]int64)}
 }
 
+// add merges feature statistics while preserving first-seen order.
 func (s *statCounter) add(stats []worker.FeatureStat) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -377,6 +390,7 @@ func (s *statCounter) add(stats []worker.FeatureStat) {
 	}
 }
 
+// snapshot returns the accumulated statistics in stable order.
 func (s *statCounter) snapshot() []worker.FeatureStat {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -388,6 +402,7 @@ func (s *statCounter) snapshot() []worker.FeatureStat {
 	return result
 }
 
+// rawJSON converts raw JSON into a value suitable for rebroadcasting.
 func rawJSON(raw json.RawMessage) any {
 	if len(raw) == 0 {
 		return nil
@@ -399,10 +414,12 @@ func rawJSON(raw json.RawMessage) any {
 	return value
 }
 
+// round1 rounds a float to one decimal place.
 func round1(value float64) float64 {
 	return math.Round(value*10) / 10
 }
 
+// writeJSON writes a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -411,6 +428,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	}
 }
 
+// String formats the seed range for logs and diagnostics.
 func (r seedRange) String() string {
 	return fmt.Sprintf("%d-%d", r.start, r.end)
 }
