@@ -35,7 +35,7 @@ func main() {
 
 	addr := strings.TrimSpace(os.Getenv("SEED_GO_ADDR"))
 	if addr == "" {
-		addr = "localhost:5000"
+		addr = "localhost:5050"
 	}
 
 	app := server.New(pool)
