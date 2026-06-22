@@ -595,6 +595,11 @@ namespace StardewSeedSearcher
                 features.Add(cartPredictor);
             }
 
+            foreach (var feature in features)
+            {
+                feature.Prepare();
+            }
+
             return features;
         }
 

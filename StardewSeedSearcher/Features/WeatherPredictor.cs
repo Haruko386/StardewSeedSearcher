@@ -27,6 +27,22 @@ namespace StardewSeedSearcher.Features
         public bool IsEnabled { get; set; } = true;
         public int locationHash = HashHelper.GetHashFromString("location_weather");
 
+        private WeatherCondition[] _sortedConditions = [];
+
+        public void Prepare()
+        {
+            _sortedConditions = Conditions
+                .OrderBy(EstimateCostPerCondition)
+                .ToArray();
+        }
+
+        private void EnsurePrepared()
+        {
+            if (_sortedConditions.Length != Conditions.Count)
+            {
+                Prepare();
+            }
+        }
 
         /// <summary>
         /// 检查种子是否符合筛选条件
@@ -36,14 +52,14 @@ namespace StardewSeedSearcher.Features
             if (Conditions.Count == 0)
                 return true;
 
+            EnsurePrepared();
+
             // 只计算一次绿雨
             int greenRainDay = GetGreenRainDay(gameID, useLegacyRandom);
 
             // 动态排序，优先检查范围窄、要求高的条件
-            var sortedConditions = Conditions.OrderBy(EstimateCostPerCondition).ToList();
-            
             // 逐条件检查，失败立即返回
-            foreach (var condition in sortedConditions)
+            foreach (var condition in _sortedConditions)
             {
                 int rainCount = 0;
                 int totalInRange = condition.AbsoluteEndDay - condition.AbsoluteStartDay + 1;
@@ -130,11 +146,13 @@ namespace StardewSeedSearcher.Features
         /// <summary>
         /// 计算绿雨日期
         /// </summary>
+        
+        public static readonly int[] greenRainDays = { 5, 6, 7, 14, 15, 16, 18, 23 };
         public int GetGreenRainDay(int gameID, bool useLegacyRandom)
         {
             int greenRainSeed = HashHelper.GetRandomSeed(777, gameID, 0, 0, 0, useLegacyRandom);
             Random greenRainRng = new Random(greenRainSeed);
-            int[] greenRainDays = { 5, 6, 7, 14, 15, 16, 18, 23 };
+            // int[] greenRainDays = { 5, 6, 7, 14, 15, 16, 18, 23 };
             int greenRainDay = greenRainDays[greenRainRng.Next(greenRainDays.Length)];
             return greenRainDay;
         }
@@ -188,7 +206,8 @@ namespace StardewSeedSearcher.Features
             if (Conditions.Count == 0) return 0;
             
             // 找到最容易失败（最便宜）的那个条件
-            var bestCondition = Conditions.OrderBy(EstimateCostPerCondition).First();
+            EnsurePrepared();
+            var bestCondition = _sortedConditions[0];
             
             // 基础开销(绿雨56次) + 第一个条件的预期天数
             return 56 + EstimateCostPerCondition(bestCondition);
